@@ -1,0 +1,1 @@
+cmd_Release/spatial_assembler.node := ln -f "Release/obj.target/spatial_assembler.node" "Release/spatial_assembler.node" 2>/dev/null || (rm -rf "Release/spatial_assembler.node" && cp -af "Release/obj.target/spatial_assembler.node" "Release/spatial_assembler.node")

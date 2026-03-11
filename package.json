@@ -1,0 +1,26 @@
+{
+  "name": "@volt/spatial-assembler",
+  "version": "1.0.0",
+  "description": "Native Node.js addon for spatial GLB assembly workflows.",
+  "private": false,
+  "gypfile": true,
+  "main": "index.js",
+  "type": "commonjs",
+  "files": [
+    "binding.gyp",
+    "index.js",
+    "src/**/*"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "scripts": {
+    "install": "node-gyp rebuild"
+  },
+  "devDependencies": {
+    "node-gyp": "^10.0.0"
+  }
+}

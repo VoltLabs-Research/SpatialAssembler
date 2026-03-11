@@ -1,0 +1,1 @@
+cmd_Release/obj.target/spatial_assembler.node := g++ -o Release/obj.target/spatial_assembler.node -shared -pthread -rdynamic -pthread -m64  -Wl,-soname=spatial_assembler.node -Wl,--start-group Release/obj.target/spatial_assembler/src/glb_exporter.o -Wl,--end-group 
