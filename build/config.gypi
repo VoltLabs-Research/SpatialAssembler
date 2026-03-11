@@ -501,7 +501,17 @@
     "v8_enable_v8_checks": 0,
     "nodedir": "/home/rodyherrera/.cache/node-gyp/25.7.0",
     "python": "/usr/bin/python3",
-    "standalone_static_library": 1
+    "standalone_static_library": 1,
+    "global_prefix": "/home/rodyherrera/.nvm/versions/node/v25.7.0",
+    "init_module": "/home/rodyherrera/.npm-init.js",
+    "globalconfig": "/home/rodyherrera/.nvm/versions/node/v25.7.0/etc/npmrc",
+    "node_gyp": "/home/rodyherrera/.nvm/versions/node/v25.7.0/lib/node_modules/npm/node_modules/node-gyp/bin/node-gyp.js",
+    "cache": "/home/rodyherrera/.npm",
+    "npm_version": "11.10.1",
+    "prefix": "/home/rodyherrera/.nvm/versions/node/v25.7.0",
+    "local_prefix": "/home/rodyherrera/Desktop/voltlabs-ecosystem/tools/SpatialAssembler",
+    "userconfig": "/home/rodyherrera/.npmrc",
+    "user_agent": "npm/11.10.1 node/v25.7.0 linux x64 workspaces/false"
   },
   "target_defaults": {
     "include_dirs": [],

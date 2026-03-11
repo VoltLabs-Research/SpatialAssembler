@@ -16,6 +16,12 @@
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
 
+#if defined(__GNUC__) || defined(__clang__)
+#define SPATIAL_ASSEMBLER_AVX2_BMI2_TARGET __attribute__((target("avx2,bmi2")))
+#else
+#define SPATIAL_ASSEMBLER_AVX2_BMI2_TARGET
+#endif
+
 void* aligned_malloc(size_t size) {
     void* ptr = _mm_malloc(size, ALIGN_BYTES);
     if (!ptr) abort();
@@ -35,30 +41,17 @@ FORCE_INLINE unsigned int getWorkerThreadCount(unsigned int fallback = 1) {
     return numThreads;
 }
 
-bool hasRequiredSpatialAssemblerCpuFeatures() {
+bool hasSpatialAssemblerFastCpuFeatures() {
 #if defined(__x86_64__) || defined(__i386__)
 #if defined(__GNUC__) || defined(__clang__)
     __builtin_cpu_init();
     return __builtin_cpu_supports("avx2") && __builtin_cpu_supports("bmi2");
 #else
-    return true;
+    return false;
 #endif
 #else
     return false;
 #endif
-}
-
-bool ensureSpatialAssemblerCpuSupport(napi_env env) {
-    if (hasRequiredSpatialAssemblerCpuFeatures()) {
-        return true;
-    }
-
-    napi_throw_error(
-        env,
-        nullptr,
-        "SpatialAssembler requires AVX2 and BMI2 CPU support."
-    );
-    return false;
 }
 
 // COLOR TABLES - SOA Layout for SIMD access
@@ -146,8 +139,21 @@ void initGradientLUT() {
     GRADIENT_LUT_INIT = true;
 }
 
+FORCE_INLINE uint32_t expandBits3D(uint32_t value) {
+    value &= 0x000003ffu;
+    value = (value | (value << 16)) & 0x030000FFu;
+    value = (value | (value << 8)) & 0x0300F00Fu;
+    value = (value | (value << 4)) & 0x030C30C3u;
+    value = (value | (value << 2)) & 0x09249249u;
+    return value;
+}
+
+FORCE_INLINE uint32_t morton3DScalar(uint32_t x, uint32_t y, uint32_t z) {
+    return expandBits3D(x) | (expandBits3D(y) << 1) | (expandBits3D(z) << 2);
+}
+
 // MORTON ENCODING (BMI2 HARDWARE)
-FORCE_INLINE uint32_t morton3D_BMI2(uint32_t x, uint32_t y, uint32_t z) {
+SPATIAL_ASSEMBLER_AVX2_BMI2_TARGET uint32_t morton3D_BMI2(uint32_t x, uint32_t y, uint32_t z) {
     return _pdep_u32(x, 0x92492492) | 
            _pdep_u32(y, 0x24924924) | 
            _pdep_u32(z, 0x49249249);
@@ -258,18 +264,30 @@ void lockFreeRadixSort(uint32_t*& keys, uint32_t*& indices, size_t n, unsigned i
     aligned_free(tmpIndices);
 }
 
-// AVX2 SIMD COLORIZATION
-void colorizeByTypeAVX2(
+void colorizeByTypeScalar(
     const uint32_t* RESTRICT indices,
     const uint16_t* RESTRICT srcTypes,
     float* RESTRICT dstColors,
     size_t start, size_t end
 ) {
-    // Load color tables into vectors for gather operations
-    __m256 colorR = _mm256_load_ps(TYPE_COLORS_R);
-    __m256 colorG = _mm256_load_ps(TYPE_COLORS_G);
-    __m256 colorB = _mm256_load_ps(TYPE_COLORS_B);
-    
+    for (size_t i = start; i < end; i++) {
+        uint32_t orgIdx = indices[i];
+        uint16_t t = srcTypes[orgIdx];
+        uint32_t cIdx = (t <= 7) ? t : 7;
+        size_t out = i * 3;
+        dstColors[out] = TYPE_COLORS_R[cIdx];
+        dstColors[out + 1] = TYPE_COLORS_G[cIdx];
+        dstColors[out + 2] = TYPE_COLORS_B[cIdx];
+    }
+}
+
+// AVX2 SIMD COLORIZATION
+SPATIAL_ASSEMBLER_AVX2_BMI2_TARGET void colorizeByTypeAVX2(
+    const uint32_t* RESTRICT indices,
+    const uint16_t* RESTRICT srcTypes,
+    float* RESTRICT dstColors,
+    size_t start, size_t end
+) {
     size_t i = start;
     
     // Process 8 atoms at a time
@@ -306,19 +324,10 @@ void colorizeByTypeAVX2(
         }
     }
     
-    // Scalar tail
-    for (; i < end; i++) {
-        uint32_t orgIdx = indices[i];
-        uint16_t t = srcTypes[orgIdx];
-        uint32_t cIdx = (t <= 7) ? t : 7;
-        size_t out = i * 3;
-        dstColors[out] = TYPE_COLORS_R[cIdx];
-        dstColors[out + 1] = TYPE_COLORS_G[cIdx];
-        dstColors[out + 2] = TYPE_COLORS_B[cIdx];
-    }
+    colorizeByTypeScalar(indices, srcTypes, dstColors, i, end);
 }
 
-void gatherPositionsAVX2(
+void gatherPositions(
     const uint32_t* RESTRICT indices,
     const float* RESTRICT srcPos,
     float* RESTRICT dstPos,
@@ -438,7 +447,7 @@ static napi_value GenerateGLB(napi_env env, napi_callback_info info) {
         napi_get_element(env, args[3], i, &v); napi_get_value_double(env, v, &maxArr[i]);
     }
     
-    if (!ensureSpatialAssemblerCpuSupport(env)) return nullptr;
+    const bool useFastCpuPath = hasSpatialAssemblerFastCpuFeatures();
 
     // Allocate output buffers
     float* outPos = (float*)aligned_malloc(n * 3 * sizeof(float));
@@ -468,7 +477,11 @@ static napi_value GenerateGLB(napi_env env, napi_callback_info info) {
             uint32_t uy = std::min(1023u, std::max(0u, (uint32_t)(y * 1023.0f)));
             uint32_t uz = std::min(1023u, std::max(0u, (uint32_t)(z * 1023.0f)));
             
-            keys[i] = morton3D_BMI2(ux, uy, uz);
+            if (useFastCpuPath) {
+                keys[i] = morton3D_BMI2(ux, uy, uz);
+            } else {
+                keys[i] = morton3DScalar(ux, uy, uz);
+            }
             indices[i] = (uint32_t)i;
         }
     };
@@ -490,8 +503,12 @@ static napi_value GenerateGLB(napi_env env, napi_callback_info info) {
         size_t end = std::min(start + blockSize, n);
         if (start < n) {
             threads.emplace_back([&, start, end]() {
-                gatherPositionsAVX2(indices, srcPos, outPos, start, end);
-                colorizeByTypeAVX2(indices, srcTypes, outCol, start, end);
+                gatherPositions(indices, srcPos, outPos, start, end);
+                if (useFastCpuPath) {
+                    colorizeByTypeAVX2(indices, srcTypes, outCol, start, end);
+                } else {
+                    colorizeByTypeScalar(indices, srcTypes, outCol, start, end);
+                }
             });
         }
     }
@@ -619,10 +636,11 @@ static napi_value GenerateGLBToFile(napi_env env, napi_callback_info info) {
     // Get output file path
     size_t pathLen;
     napi_get_value_string_utf8(env, args[4], nullptr, 0, &pathLen);
-    std::string outputPath(pathLen, '\0');
-    napi_get_value_string_utf8(env, args[4], &outputPath[0], pathLen + 1, &pathLen);
+    std::string outputPath(pathLen + 1, '\0');
+    napi_get_value_string_utf8(env, args[4], &outputPath[0], outputPath.size(), &pathLen);
+    outputPath.resize(pathLen);
     
-    if (!ensureSpatialAssemblerCpuSupport(env)) return nullptr;
+    const bool useFastCpuPath = hasSpatialAssemblerFastCpuFeatures();
 
     // Allocate work buffers
     float* outPos = (float*)aligned_malloc(n * 3 * sizeof(float));
@@ -652,7 +670,11 @@ static napi_value GenerateGLBToFile(napi_env env, napi_callback_info info) {
             uint32_t uy = std::min(1023u, std::max(0u, (uint32_t)(y * 1023.0f)));
             uint32_t uz = std::min(1023u, std::max(0u, (uint32_t)(z * 1023.0f)));
             
-            keys[i] = morton3D_BMI2(ux, uy, uz);
+            if (useFastCpuPath) {
+                keys[i] = morton3D_BMI2(ux, uy, uz);
+            } else {
+                keys[i] = morton3DScalar(ux, uy, uz);
+            }
             indices[i] = (uint32_t)i;
         }
     };
@@ -674,8 +696,12 @@ static napi_value GenerateGLBToFile(napi_env env, napi_callback_info info) {
         size_t end = std::min(start + blockSize, n);
         if (start < n) {
             threads.emplace_back([&, start, end]() {
-                gatherPositionsAVX2(indices, srcPos, outPos, start, end);
-                colorizeByTypeAVX2(indices, srcTypes, outCol, start, end);
+                gatherPositions(indices, srcPos, outPos, start, end);
+                if (useFastCpuPath) {
+                    colorizeByTypeAVX2(indices, srcTypes, outCol, start, end);
+                } else {
+                    colorizeByTypeScalar(indices, srcTypes, outCol, start, end);
+                }
             });
         }
     }
