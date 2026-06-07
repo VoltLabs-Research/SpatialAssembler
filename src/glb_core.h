@@ -15,41 +15,33 @@
 #include <thread>
 #include <vector>
 
-#if defined(__x86_64__) || defined(__i386__)
+// Fast SIMD path: GCC/Clang on x86 only (target attributes + __builtin_cpu_*).
+#if (defined(__GNUC__) || defined(__clang__)) && (defined(__x86_64__) || defined(__i386__))
+#define SA_FAST_PATH 1
 #include <immintrin.h>
-#define SA_X86 1
-#else
-#define SA_X86 0
-#endif
-
-#define SA_FORCE_INLINE inline __attribute__((always_inline))
-#define SA_RESTRICT __restrict
-#define SA_ALIGN_BYTES 32
-#if (defined(__GNUC__) || defined(__clang__)) && SA_X86
 #define SA_AVX2_BMI2_TARGET __attribute__((target("avx2,bmi2")))
 #else
+#define SA_FAST_PATH 0
 #define SA_AVX2_BMI2_TARGET
 #endif
+
+#if defined(_MSC_VER)
+#define SA_FORCE_INLINE inline
+#else
+#define SA_FORCE_INLINE inline __attribute__((always_inline))
+#endif
+#define SA_RESTRICT __restrict
 
 namespace glbcore {
 
 static inline void* aligned_malloc(size_t size) {
-#if SA_X86
-    void* ptr = _mm_malloc(size, SA_ALIGN_BYTES);
-#else
-    void* ptr = nullptr;
-    if (posix_memalign(&ptr, SA_ALIGN_BYTES, size) != 0) ptr = nullptr;
-#endif
+    void* ptr = malloc(size);
     if (!ptr) abort();
     return ptr;
 }
 
 static inline void aligned_free(void* ptr) {
-#if SA_X86
-    _mm_free(ptr);
-#else
     free(ptr);
-#endif
 }
 
 static inline unsigned int worker_thread_count(unsigned int fallback = 4) {
@@ -58,7 +50,7 @@ static inline unsigned int worker_thread_count(unsigned int fallback = 4) {
 }
 
 static inline bool has_fast_cpu_features() {
-#if SA_X86 && (defined(__GNUC__) || defined(__clang__))
+#if SA_FAST_PATH
     __builtin_cpu_init();
     return __builtin_cpu_supports("avx2") && __builtin_cpu_supports("bmi2");
 #else
@@ -84,7 +76,7 @@ SA_FORCE_INLINE uint32_t morton3d_scalar(uint32_t x, uint32_t y, uint32_t z) {
     return expand_bits_3d(x) | (expand_bits_3d(y) << 1) | (expand_bits_3d(z) << 2);
 }
 
-#if SA_X86
+#if SA_FAST_PATH
 SA_AVX2_BMI2_TARGET static inline uint32_t morton3d_bmi2(uint32_t x, uint32_t y, uint32_t z) {
     return _pdep_u32(x, 0x92492492) | _pdep_u32(y, 0x24924924) | _pdep_u32(z, 0x49249249);
 }
@@ -239,7 +231,7 @@ static inline std::vector<uint8_t> generate_atom_glb(
             uint32_t ux = std::min(1023u, std::max(0u, (uint32_t)(x * 1023.0f)));
             uint32_t uy = std::min(1023u, std::max(0u, (uint32_t)(y * 1023.0f)));
             uint32_t uz = std::min(1023u, std::max(0u, (uint32_t)(z * 1023.0f)));
-#if SA_X86
+#if SA_FAST_PATH
             keys[i] = fast ? morton3d_bmi2(ux, uy, uz) : morton3d_scalar(ux, uy, uz);
 #else
             keys[i] = morton3d_scalar(ux, uy, uz);
