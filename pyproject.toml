@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "volt-spatial-assembler"
-version = "0.1.0"
+version = "1.0.1"
 description = "Native GLB assembler for Volt (shared C++ core with the Node addon)."
 requires-python = ">=3.10"
 license = "MIT"
