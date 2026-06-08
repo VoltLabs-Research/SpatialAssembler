@@ -2,9 +2,8 @@ name: Publish spatial-assembler (PyPI)
 
 on:
   workflow_dispatch:
-  push:
-    tags:
-      - 'v*'
+  release:
+    types: [published]
 
 jobs:
   wheels:
@@ -44,6 +43,8 @@ jobs:
   publish:
     needs: [wheels, sdist]
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -51,5 +52,3 @@ jobs:
           pattern: dist-*
           merge-multiple: true
       - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.PYPI_API_TOKEN }}
