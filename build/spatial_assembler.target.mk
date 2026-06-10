@@ -46,13 +46,13 @@ CFLAGS_CC_Debug := \
 	-pthread
 
 INCS_Debug := \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/include/node \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/src \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/deps/openssl/config \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/deps/openssl/openssl/include \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/deps/uv/include \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/deps/zlib \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/deps/v8/include
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/include/node \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/src \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/deps/openssl/config \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/deps/openssl/openssl/include \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/deps/uv/include \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/deps/zlib \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/deps/v8/include
 
 DEFS_Release := \
 	'-DNODE_GYP_MODULE_NAME=spatial_assembler' \
@@ -96,13 +96,13 @@ CFLAGS_CC_Release := \
 	-pthread
 
 INCS_Release := \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/include/node \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/src \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/deps/openssl/config \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/deps/openssl/openssl/include \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/deps/uv/include \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/deps/zlib \
-	-I/home/rodyherrera/.cache/node-gyp/25.7.0/deps/v8/include
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/include/node \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/src \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/deps/openssl/config \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/deps/openssl/openssl/include \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/deps/uv/include \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/deps/zlib \
+	-I/home/rodyherrera/.cache/node-gyp/25.9.0/deps/v8/include
 
 OBJS := \
 	$(obj).target/$(TARGET)/src/glb_exporter.o

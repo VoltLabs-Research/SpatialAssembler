@@ -68,7 +68,8 @@ static const float TYPE_COLORS_B[] __attribute__((aligned(32))) = {
 
 // GRADIENT LUT - 1024 entries for smooth color transitions
 #define GRADIENT_LUT_SIZE 1024
-static float GRADIENT_LUT[3 * GRADIENT_LUT_SIZE * 4] __attribute__((aligned(32))); // 4 gradient types
+#define GRADIENT_TYPE_COUNT 10
+static float GRADIENT_LUT[3 * GRADIENT_LUT_SIZE * GRADIENT_TYPE_COUNT] __attribute__((aligned(32)));
 static bool GRADIENT_LUT_INIT = false;
 
 FORCE_INLINE void lerp3(float* out, const float* c0, const float* c1, float t) {
@@ -77,63 +78,127 @@ FORCE_INLINE void lerp3(float* out, const float* c0, const float* c1, float t) {
     out[2] = c0[2] + (c1[2] - c0[2]) * t;
 }
 
+// Gradient codes are a wire contract with the daemon (FilterEvaluator's
+// GradientCode): 0 Viridis, 1 Plasma, 2 BlueRed, 3 Grayscale, 4 Magma,
+// 5 Inferno, 6 Cividis, 7 RdBu, 8 Coolwarm, 9 Jet. Codes 0-3 predate this
+// table and must keep their meaning. Stop colors mirror the client gradient
+// previews (GradientPreview GRADIENT_CSS) so baked colors match the picker.
+struct GradientStop {
+    float t;
+    float rgb[3];
+};
+
+static const GradientStop VIRIDIS_STOPS[] = {
+    {0.000f, {0.2667f, 0.0039f, 0.3294f}}, {0.111f, {0.2824f, 0.1569f, 0.4706f}},
+    {0.222f, {0.2431f, 0.2902f, 0.5373f}}, {0.333f, {0.1922f, 0.4078f, 0.5569f}},
+    {0.444f, {0.1490f, 0.5137f, 0.5608f}}, {0.556f, {0.1216f, 0.6196f, 0.5373f}},
+    {0.667f, {0.2078f, 0.7176f, 0.4745f}}, {0.778f, {0.4314f, 0.8078f, 0.3451f}},
+    {0.889f, {0.7098f, 0.8706f, 0.1686f}}, {1.000f, {0.9922f, 0.9059f, 0.1451f}}
+};
+
+static const GradientStop PLASMA_STOPS[] = {
+    {0.000f, {0.0510f, 0.0314f, 0.5294f}}, {0.111f, {0.2745f, 0.0118f, 0.6235f}},
+    {0.222f, {0.4471f, 0.0039f, 0.6588f}}, {0.333f, {0.6118f, 0.0902f, 0.6196f}},
+    {0.444f, {0.7412f, 0.2157f, 0.5255f}}, {0.556f, {0.8471f, 0.3412f, 0.4196f}},
+    {0.667f, {0.9294f, 0.4745f, 0.3255f}}, {0.778f, {0.9843f, 0.6235f, 0.2275f}},
+    {0.889f, {0.9922f, 0.7922f, 0.1490f}}, {1.000f, {0.9412f, 0.9765f, 0.1294f}}
+};
+
+static const GradientStop BLUERED_STOPS[] = {
+    {0.0f, {0.0f, 0.0f, 1.0f}}, {0.5f, {1.0f, 1.0f, 1.0f}}, {1.0f, {1.0f, 0.0f, 0.0f}}
+};
+
+static const GradientStop GRAYSCALE_STOPS[] = {
+    {0.0f, {0.0f, 0.0f, 0.0f}}, {1.0f, {1.0f, 1.0f, 1.0f}}
+};
+
+static const GradientStop MAGMA_STOPS[] = {
+    {0.000f, {0.0000f, 0.0000f, 0.0157f}}, {0.125f, {0.1098f, 0.0627f, 0.2667f}},
+    {0.250f, {0.3176f, 0.0706f, 0.4863f}}, {0.375f, {0.5098f, 0.1490f, 0.5059f}},
+    {0.500f, {0.7176f, 0.2157f, 0.4745f}}, {0.625f, {0.9059f, 0.3216f, 0.3882f}},
+    {0.750f, {0.9843f, 0.5294f, 0.3804f}}, {0.875f, {0.9961f, 0.7608f, 0.5294f}},
+    {1.000f, {0.9882f, 0.9922f, 0.7490f}}
+};
+
+static const GradientStop INFERNO_STOPS[] = {
+    {0.000f, {0.0000f, 0.0000f, 0.0157f}}, {0.125f, {0.1059f, 0.0471f, 0.2588f}},
+    {0.250f, {0.2902f, 0.0471f, 0.4196f}}, {0.375f, {0.4706f, 0.1098f, 0.4275f}},
+    {0.500f, {0.6471f, 0.1725f, 0.3765f}}, {0.625f, {0.8118f, 0.2667f, 0.2745f}},
+    {0.750f, {0.9294f, 0.4118f, 0.1451f}}, {0.875f, {0.9843f, 0.6039f, 0.0235f}},
+    {1.000f, {0.9882f, 1.0000f, 0.6431f}}
+};
+
+static const GradientStop CIVIDIS_STOPS[] = {
+    {0.000f, {0.0000f, 0.1255f, 0.3176f}}, {0.125f, {0.0706f, 0.2314f, 0.4000f}},
+    {0.250f, {0.2000f, 0.2745f, 0.4275f}}, {0.375f, {0.3137f, 0.3490f, 0.4706f}},
+    {0.500f, {0.4196f, 0.4235f, 0.4941f}}, {0.625f, {0.5529f, 0.4941f, 0.4863f}},
+    {0.750f, {0.7255f, 0.5686f, 0.4588f}}, {0.875f, {0.8667f, 0.6902f, 0.3882f}},
+    {1.000f, {0.9922f, 0.9176f, 0.2706f}}
+};
+
+static const GradientStop RDBU_STOPS[] = {
+    {0.0f, {0.4039f, 0.0000f, 0.1216f}}, {0.1f, {0.6980f, 0.0941f, 0.1686f}},
+    {0.2f, {0.8392f, 0.3765f, 0.3020f}}, {0.3f, {0.9569f, 0.6471f, 0.5098f}},
+    {0.4f, {0.9922f, 0.8588f, 0.7804f}}, {0.5f, {0.9686f, 0.9686f, 0.9686f}},
+    {0.6f, {0.8196f, 0.8980f, 0.9412f}}, {0.7f, {0.5725f, 0.7725f, 0.8706f}},
+    {0.8f, {0.2627f, 0.5765f, 0.7647f}}, {0.9f, {0.1294f, 0.4000f, 0.6745f}},
+    {1.0f, {0.0196f, 0.1882f, 0.3804f}}
+};
+
+static const GradientStop COOLWARM_STOPS[] = {
+    {0.000f, {0.2314f, 0.2980f, 0.7529f}}, {0.125f, {0.3686f, 0.4902f, 0.9059f}},
+    {0.250f, {0.5333f, 0.6667f, 0.9412f}}, {0.375f, {0.7098f, 0.8078f, 0.9529f}},
+    {0.500f, {0.8667f, 0.8980f, 0.9255f}}, {0.625f, {0.9529f, 0.8275f, 0.7569f}},
+    {0.750f, {0.9412f, 0.6627f, 0.4863f}}, {0.875f, {0.8588f, 0.4235f, 0.3176f}},
+    {1.000f, {0.7059f, 0.0157f, 0.1608f}}
+};
+
+static const GradientStop JET_STOPS[] = {
+    {0.000f, {0.0f, 0.0f, 0.5f}}, {0.125f, {0.0f, 0.0f, 1.0f}},
+    {0.375f, {0.0f, 1.0f, 1.0f}}, {0.625f, {1.0f, 1.0f, 0.0f}},
+    {0.875f, {1.0f, 0.0f, 0.0f}}, {1.000f, {0.5f, 0.0f, 0.0f}}
+};
+
+struct GradientDef {
+    const GradientStop* stops;
+    int count;
+};
+
+static const GradientDef GRADIENT_DEFS[GRADIENT_TYPE_COUNT] = {
+    {VIRIDIS_STOPS, 10},
+    {PLASMA_STOPS, 10},
+    {BLUERED_STOPS, 3},
+    {GRAYSCALE_STOPS, 2},
+    {MAGMA_STOPS, 9},
+    {INFERNO_STOPS, 9},
+    {CIVIDIS_STOPS, 9},
+    {RDBU_STOPS, 11},
+    {COOLWARM_STOPS, 9},
+    {JET_STOPS, 6}
+};
+
 void initGradientLUT() {
     if (GRADIENT_LUT_INIT) return;
-    
-    const float viridis_c0[3] = {0.267004f, 0.004874f, 0.329415f};
-    const float viridis_c1[3] = {0.127568f, 0.566949f, 0.550556f};
-    const float viridis_c2[3] = {0.993248f, 0.906157f, 0.143936f};
-    
-    const float plasma_c0[3] = {0.050383f, 0.029803f, 0.527975f};
-    const float plasma_c1[3] = {0.798216f, 0.280197f, 0.469538f};
-    const float plasma_c2[3] = {0.940015f, 0.975158f, 0.131326f};
-    
-    for (int i = 0; i < GRADIENT_LUT_SIZE; i++) {
-        float t = i / (float)(GRADIENT_LUT_SIZE - 1);
-        float rgb[3];
-        
-        // Gradient 0: Viridis
-        {
-            int idx = (0 * GRADIENT_LUT_SIZE * 3) + (i * 3);
-            if (t < 0.5f) lerp3(rgb, viridis_c0, viridis_c1, t * 2.0f);
-            else lerp3(rgb, viridis_c1, viridis_c2, (t - 0.5f) * 2.0f);
+
+    for (int g = 0; g < GRADIENT_TYPE_COUNT; g++) {
+        const GradientDef& def = GRADIENT_DEFS[g];
+        for (int i = 0; i < GRADIENT_LUT_SIZE; i++) {
+            float t = i / (float)(GRADIENT_LUT_SIZE - 1);
+            int hi = 1;
+            while (hi < def.count - 1 && def.stops[hi].t < t) hi++;
+            const GradientStop& s0 = def.stops[hi - 1];
+            const GradientStop& s1 = def.stops[hi];
+            float span = s1.t - s0.t;
+            float lt = span > 0.0f ? (t - s0.t) / span : 0.0f;
+            lt = std::max(0.0f, std::min(1.0f, lt));
+
+            float rgb[3];
+            lerp3(rgb, s0.rgb, s1.rgb, lt);
+
+            int idx = (g * GRADIENT_LUT_SIZE * 3) + (i * 3);
             GRADIENT_LUT[idx] = rgb[0];
             GRADIENT_LUT[idx + 1] = rgb[1];
             GRADIENT_LUT[idx + 2] = rgb[2];
-        }
-        
-        // Gradient 1: Plasma
-        {
-            int idx = (1 * GRADIENT_LUT_SIZE * 3) + (i * 3);
-            if (t < 0.5f) lerp3(rgb, plasma_c0, plasma_c1, t * 2.0f);
-            else lerp3(rgb, plasma_c1, plasma_c2, (t - 0.5f) * 2.0f);
-            GRADIENT_LUT[idx] = rgb[0];
-            GRADIENT_LUT[idx + 1] = rgb[1];
-            GRADIENT_LUT[idx + 2] = rgb[2];
-        }
-        
-        // Gradient 2: Blue-Red
-        {
-            int idx = (2 * GRADIENT_LUT_SIZE * 3) + (i * 3);
-            if (t < 0.5f) {
-                float lt = t * 2.0f;
-                GRADIENT_LUT[idx] = lt;
-                GRADIENT_LUT[idx + 1] = lt;
-                GRADIENT_LUT[idx + 2] = 1.0f;
-            } else {
-                float lt = (t - 0.5f) * 2.0f;
-                GRADIENT_LUT[idx] = 1.0f;
-                GRADIENT_LUT[idx + 1] = 1.0f - lt;
-                GRADIENT_LUT[idx + 2] = 1.0f - lt;
-            }
-        }
-        
-        // Gradient 3: Grayscale
-        {
-            int idx = (3 * GRADIENT_LUT_SIZE * 3) + (i * 3);
-            GRADIENT_LUT[idx] = t;
-            GRADIENT_LUT[idx + 1] = t;
-            GRADIENT_LUT[idx + 2] = t;
         }
     }
     GRADIENT_LUT_INIT = true;
@@ -743,7 +808,7 @@ static napi_value ApplyPropertyColors(napi_env env, napi_callback_info info) {
     napi_get_value_double(env, args[1], &minVal);
     napi_get_value_double(env, args[2], &maxVal);
     napi_get_value_int32(env, args[3], &type);
-    if (type < 0 || type > 3) type = 0;
+    if (type < 0 || type >= GRADIENT_TYPE_COUNT) type = 0;
 
     napi_value outBuf, outArr;
     void* outPtr;
