@@ -9,6 +9,13 @@
 #include <cstdio>
 #include <string>
 
+// Shared runtime-agnostic core (single source of truth for the pure,
+// float-free leaf helpers: Morton encoders, position gather, radix scatter).
+// Only byte-identical helpers are delegated here; every Node-only
+// specialization below (AVX2 colorize + its tables, gradient LUT,
+// _mm_malloc, unrolled radix histogram, uint16 mesh-index path) stays local.
+#include "glb_core.h"
+
 // CONFIGURATION AND PERFORMANCE MACROS
 #define FORCE_INLINE inline __attribute__((always_inline))
 #define RESTRICT __restrict
@@ -205,29 +212,25 @@ void initGradientLUT() {
 }
 
 FORCE_INLINE uint32_t expandBits3D(uint32_t value) {
-    value &= 0x000003ffu;
-    value = (value | (value << 16)) & 0x030000FFu;
-    value = (value | (value << 8)) & 0x0300F00Fu;
-    value = (value | (value << 4)) & 0x030C30C3u;
-    value = (value | (value << 2)) & 0x09249249u;
-    return value;
+    return glbcore::expand_bits_3d(value);
 }
 
 FORCE_INLINE uint32_t morton3DScalar(uint32_t x, uint32_t y, uint32_t z) {
-    return expandBits3D(x) | (expandBits3D(y) << 1) | (expandBits3D(z) << 2);
+    return glbcore::morton3d_scalar(x, y, z);
 }
 
-// MORTON ENCODING (BMI2 HARDWARE)
+// MORTON ENCODING (BMI2 HARDWARE) — delegated to the shared core (identical
+// _pdep_u32 masks). Pure integer, so the -ffast-math build flag is irrelevant.
 SPATIAL_ASSEMBLER_AVX2_BMI2_TARGET uint32_t morton3D_BMI2(uint32_t x, uint32_t y, uint32_t z) {
-    return _pdep_u32(x, 0x92492492) | 
-           _pdep_u32(y, 0x24924924) | 
-           _pdep_u32(z, 0x49249249);
+    return glbcore::morton3d_bmi2(x, y, z);
 }
 
-// LOCK-FREE RADIX SORT - Per-thread local histograms, no atomics
-struct RadixHist {
-    uint32_t count[256];
-};
+// LOCK-FREE RADIX SORT - Per-thread local histograms, no atomics.
+// RadixHist + the scatter step are delegated to the shared core (identical,
+// pure-integer). The 4-wide-unrolled histogram below is a Node-only perf
+// specialization and is kept; unrolling changes only instruction grouping,
+// not the bucket counts, so the sorted output is unchanged.
+using glbcore::RadixHist;
 
 void radixCountChunk(const uint32_t* RESTRICT keys, size_t start, size_t end, int shift, RadixHist* hist) {
     memset(hist->count, 0, sizeof(hist->count));
@@ -242,21 +245,6 @@ void radixCountChunk(const uint32_t* RESTRICT keys, size_t start, size_t end, in
                 hist->count[(keys[j] >> shift) & 0xFF]++;
             }
         }
-    }
-}
-
-// Lock-free scatter using pre-computed per-thread offsets
-void radixScatterLockFree(
-    const uint32_t* RESTRICT srcKeys, const uint32_t* RESTRICT srcIndices,
-    uint32_t* RESTRICT dstKeys, uint32_t* RESTRICT dstIndices,
-    size_t start, size_t end, int shift,
-    uint32_t* localOffsets 
-) {
-    for (size_t i = start; i < end; i++) {
-        uint8_t bucket = (srcKeys[i] >> shift) & 0xFF;
-        uint32_t destIdx = localOffsets[bucket]++;
-        dstKeys[destIdx] = srcKeys[i];
-        dstIndices[destIdx] = srcIndices[i];
     }
 }
 
@@ -309,8 +297,8 @@ void lockFreeRadixSort(uint32_t*& keys, uint32_t*& indices, size_t n, unsigned i
             size_t start = t * blockSize;
             size_t end = std::min(start + blockSize, n);
             if (start < n) {
-                threads.emplace_back(radixScatterLockFree, 
-                    srcK, srcI, dstK, dstI, start, end, shift, 
+                threads.emplace_back(glbcore::radix_scatter,
+                    srcK, srcI, dstK, dstI, start, end, shift,
                     threadOffsets[t].data());
             }
         }
@@ -329,21 +317,17 @@ void lockFreeRadixSort(uint32_t*& keys, uint32_t*& indices, size_t n, unsigned i
     aligned_free(tmpIndices);
 }
 
+// Scalar colorize (the AVX2 tail + non-AVX2 fallback) delegates to the shared
+// core: identical type->color table values and a pure lookup (no arithmetic),
+// so output is byte-identical. The local AVX2 path and its aligned tables below
+// are a Node-only specialization and are kept.
 void colorizeByTypeScalar(
     const uint32_t* RESTRICT indices,
     const uint16_t* RESTRICT srcTypes,
     float* RESTRICT dstColors,
     size_t start, size_t end
 ) {
-    for (size_t i = start; i < end; i++) {
-        uint32_t orgIdx = indices[i];
-        uint16_t t = srcTypes[orgIdx];
-        uint32_t cIdx = (t <= 7) ? t : 7;
-        size_t out = i * 3;
-        dstColors[out] = TYPE_COLORS_R[cIdx];
-        dstColors[out + 1] = TYPE_COLORS_G[cIdx];
-        dstColors[out + 2] = TYPE_COLORS_B[cIdx];
-    }
+    glbcore::colorize_by_type(indices, srcTypes, dstColors, start, end);
 }
 
 // AVX2 SIMD COLORIZATION
@@ -392,20 +376,15 @@ SPATIAL_ASSEMBLER_AVX2_BMI2_TARGET void colorizeByTypeAVX2(
     colorizeByTypeScalar(indices, srcTypes, dstColors, i, end);
 }
 
+// gatherPositions delegates to the shared core: pure memory shuffle (no float
+// arithmetic), so the build's -ffast-math has no bearing on the result.
 void gatherPositions(
     const uint32_t* RESTRICT indices,
     const float* RESTRICT srcPos,
     float* RESTRICT dstPos,
     size_t start, size_t end
 ) {
-    for (size_t i = start; i < end; i++) {
-        uint32_t orgIdx = indices[i];
-        size_t pSrc = orgIdx * 3;
-        size_t pDst = i * 3;
-        dstPos[pDst] = srcPos[pSrc];
-        dstPos[pDst + 1] = srcPos[pSrc + 1];
-        dstPos[pDst + 2] = srcPos[pSrc + 2];
-    }
+    glbcore::gather_positions(indices, srcPos, dstPos, start, end);
 }
 
 // DIRECT GLB BINARY GENERATION
@@ -858,9 +837,6 @@ static napi_value GeneratePointCloudGLB(napi_env env, napi_callback_info info) {
     napi_get_typedarray_info(env, args[0], nullptr, &posLen, (void**)&positions, nullptr, nullptr);
     napi_get_typedarray_info(env, args[1], nullptr, &colLen, (void**)&colors, nullptr, nullptr);
     
-    size_t atomCount = posLen / 3;
-    bool isVec4 = (colLen == atomCount * 4);
-    
     // Get bounds from args[2] and args[3]
     napi_value val;
     double minArr[3], maxArr[3];
@@ -868,47 +844,13 @@ static napi_value GeneratePointCloudGLB(napi_env env, napi_callback_info info) {
         napi_get_element(env, args[2], i, &val); napi_get_value_double(env, val, &minArr[i]);
         napi_get_element(env, args[3], i, &val); napi_get_value_double(env, val, &maxArr[i]);
     }
-    
-    size_t posBytes = posLen * sizeof(float);
-    size_t colBytes = colLen * sizeof(float);
-    size_t binTotal = posBytes + colBytes;
-    size_t binPadding = (4 - (binTotal % 4)) % 4;
-    
-    const char* colorType = isVec4 ? "VEC4" : "VEC3";
-    
-    char json[2048];
-    int jsonLen = snprintf(json, sizeof(json),
-        R"({"asset":{"version":"2.0","generator":"Volt Native"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0,"name":"Atoms"}],"meshes":[{"primitives":[{"attributes":{"POSITION":0,"COLOR_0":1},"mode":0}],"name":"AtomCloud"}],"accessors":[{"bufferView":0,"componentType":5126,"count":%zu,"type":"VEC3","min":[%.6f,%.6f,%.6f],"max":[%.6f,%.6f,%.6f]},{"bufferView":1,"componentType":5126,"count":%zu,"type":"%s"}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":%zu,"target":34962},{"buffer":0,"byteOffset":%zu,"byteLength":%zu,"target":34962}],"buffers":[{"byteLength":%zu}]})",
-        atomCount, minArr[0], minArr[1], minArr[2], maxArr[0], maxArr[1], maxArr[2],
-        atomCount, colorType,
-        posBytes, posBytes, colBytes,
-        binTotal
-    );
-    
-    size_t jsonPadding = (4 - (jsonLen % 4)) % 4;
-    size_t totalSize = 12 + 8 + jsonLen + jsonPadding + 8 + binTotal + binPadding;
-    
-    std::vector<uint8_t> glb(totalSize);
-    uint8_t* p = glb.data();
-    
-    // Header
-    *(uint32_t*)p = 0x46546C67; p += 4;
-    *(uint32_t*)p = 2; p += 4;
-    *(uint32_t*)p = (uint32_t)totalSize; p += 4;
-    
-    // JSON chunk
-    *(uint32_t*)p = jsonLen + jsonPadding; p += 4;
-    *(uint32_t*)p = 0x4E4F534A; p += 4;
-    memcpy(p, json, jsonLen); p += jsonLen;
-    memset(p, 0x20, jsonPadding); p += jsonPadding;
-    
-    // BIN chunk
-    *(uint32_t*)p = binTotal + binPadding; p += 4;
-    *(uint32_t*)p = 0x004E4942; p += 4;
-    memcpy(p, positions, posBytes); p += posBytes;
-    memcpy(p, colors, colBytes); p += colBytes;
-    memset(p, 0, binPadding);
-    
+
+    // Pure pre-colored assembly with no Node-only specialization: delegated to
+    // the shared core. Proven byte-identical to the prior inline path by the
+    // cross-binding regression harness (Node == Python for VEC3 and VEC4).
+    std::vector<uint8_t> glb = glbcore::generate_point_cloud_glb(
+        positions, posLen, colors, colLen, minArr, maxArr);
+
     napi_value result;
     void* resultData;
     napi_create_buffer_copy(env, glb.size(), glb.data(), &resultData, &result);

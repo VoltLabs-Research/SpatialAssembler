@@ -4,9 +4,11 @@ Release/obj.target/spatial_assembler/src/glb_exporter.o: \
  /home/rodyherrera/.cache/node-gyp/25.9.0/include/node/node_api.h \
  /home/rodyherrera/.cache/node-gyp/25.9.0/include/node/js_native_api.h \
  /home/rodyherrera/.cache/node-gyp/25.9.0/include/node/js_native_api_types.h \
- /home/rodyherrera/.cache/node-gyp/25.9.0/include/node/node_api_types.h
+ /home/rodyherrera/.cache/node-gyp/25.9.0/include/node/node_api_types.h \
+ ../src/glb_core.h
 ../src/glb_exporter.cpp:
 /home/rodyherrera/.cache/node-gyp/25.9.0/include/node/node_api.h:
 /home/rodyherrera/.cache/node-gyp/25.9.0/include/node/js_native_api.h:
 /home/rodyherrera/.cache/node-gyp/25.9.0/include/node/js_native_api_types.h:
 /home/rodyherrera/.cache/node-gyp/25.9.0/include/node/node_api_types.h:
+../src/glb_core.h:

@@ -524,6 +524,7 @@
     "cache": "/home/rodyherrera/.npm",
     "npm_version": "11.12.1",
     "prefix": "/home/rodyherrera/.nvm/versions/node/v25.9.0",
+    "yes": "",
     "local_prefix": "/home/rodyherrera/Desktop/ecosystem/packages/SpatialAssembler",
     "userconfig": "/home/rodyherrera/.npmrc",
     "user_agent": "npm/11.12.1 node/v25.9.0 linux x64 workspaces/false"
