@@ -1,6 +1,6 @@
 {
   "name": "@voltstack/spatial-assembler",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "description": "Native Node.js addon for spatial GLB assembly workflows.",
   "private": false,
   "gypfile": true,
