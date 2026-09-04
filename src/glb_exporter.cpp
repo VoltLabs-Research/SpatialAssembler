@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <thread>
 #include <vector>
-#include <immintrin.h>
 #include <mutex>
 #include <cstdio>
 #include <string>
@@ -17,11 +16,18 @@
 #include "glb_core.h"
 
 // CONFIGURATION AND PERFORMANCE MACROS
+#if defined(_MSC_VER)
+#include <malloc.h>
+#define FORCE_INLINE __forceinline
+#define LIKELY(x) (!!(x))
+#define UNLIKELY(x) (!!(x))
+#else
 #define FORCE_INLINE inline __attribute__((always_inline))
-#define RESTRICT __restrict
-#define ALIGN_BYTES 32
 #define LIKELY(x) __builtin_expect(!!(x), 1)
 #define UNLIKELY(x) __builtin_expect(!!(x), 0)
+#endif
+#define RESTRICT __restrict
+#define ALIGN_BYTES 32
 
 #if defined(__GNUC__) || defined(__clang__)
 #define SPATIAL_ASSEMBLER_AVX2_BMI2_TARGET __attribute__((target("avx2,bmi2")))
@@ -30,13 +36,22 @@
 #endif
 
 void* aligned_malloc(size_t size) {
-    void* ptr = _mm_malloc(size, ALIGN_BYTES);
+#if defined(_MSC_VER)
+    void* ptr = _aligned_malloc(size, ALIGN_BYTES);
+#else
+    void* ptr = nullptr;
+    if (posix_memalign(&ptr, ALIGN_BYTES, size) != 0) ptr = nullptr;
+#endif
     if (!ptr) abort();
     return ptr;
 }
 
 void aligned_free(void* ptr) {
-    _mm_free(ptr);
+#if defined(_MSC_VER)
+    _aligned_free(ptr);
+#else
+    free(ptr);
+#endif
 }
 
 FORCE_INLINE unsigned int getWorkerThreadCount(unsigned int fallback = 1) {
@@ -63,20 +78,20 @@ bool hasSpatialAssemblerFastCpuFeatures() {
 
 // COLOR TABLES - SOA Layout for SIMD access
 // Type colors: 8 types, RGB stored as separate rows for SIMD loading
-static const float TYPE_COLORS_R[] __attribute__((aligned(32))) = {
+alignas(32) static const float TYPE_COLORS_R[] = {
     0.5f, 1.0f, 0.267f, 0.267f, 1.0f, 1.0f, 0.267f, 0.6f
 };
-static const float TYPE_COLORS_G[] __attribute__((aligned(32))) = {
+alignas(32) static const float TYPE_COLORS_G[] = {
     0.5f, 0.267f, 1.0f, 0.267f, 1.0f, 0.267f, 1.0f, 0.6f
 };
-static const float TYPE_COLORS_B[] __attribute__((aligned(32))) = {
+alignas(32) static const float TYPE_COLORS_B[] = {
     0.5f, 0.267f, 0.267f, 1.0f, 0.267f, 1.0f, 1.0f, 0.6f
 };
 
 // GRADIENT LUT - 1024 entries for smooth color transitions
 #define GRADIENT_LUT_SIZE 1024
 #define GRADIENT_TYPE_COUNT 10
-static float GRADIENT_LUT[3 * GRADIENT_LUT_SIZE * GRADIENT_TYPE_COUNT] __attribute__((aligned(32)));
+alignas(32) static float GRADIENT_LUT[3 * GRADIENT_LUT_SIZE * GRADIENT_TYPE_COUNT];
 static bool GRADIENT_LUT_INIT = false;
 
 FORCE_INLINE void lerp3(float* out, const float* c0, const float* c1, float t) {
@@ -221,9 +236,15 @@ FORCE_INLINE uint32_t morton3DScalar(uint32_t x, uint32_t y, uint32_t z) {
 
 // MORTON ENCODING (BMI2 HARDWARE) — delegated to the shared core (identical
 // _pdep_u32 masks). Pure integer, so the -ffast-math build flag is irrelevant.
+#if SA_FAST_PATH
 SPATIAL_ASSEMBLER_AVX2_BMI2_TARGET uint32_t morton3D_BMI2(uint32_t x, uint32_t y, uint32_t z) {
     return glbcore::morton3d_bmi2(x, y, z);
 }
+#else
+uint32_t morton3D_BMI2(uint32_t x, uint32_t y, uint32_t z) {
+    return glbcore::morton3d_scalar(x, y, z);
+}
+#endif
 
 // LOCK-FREE RADIX SORT - Per-thread local histograms, no atomics.
 // RadixHist + the scatter step are delegated to the shared core (identical,
@@ -330,6 +351,7 @@ void colorizeByTypeScalar(
     glbcore::colorize_by_type(indices, srcTypes, dstColors, start, end);
 }
 
+#if SA_FAST_PATH
 // AVX2 SIMD COLORIZATION
 SPATIAL_ASSEMBLER_AVX2_BMI2_TARGET void colorizeByTypeAVX2(
     const uint32_t* RESTRICT indices,
@@ -375,6 +397,16 @@ SPATIAL_ASSEMBLER_AVX2_BMI2_TARGET void colorizeByTypeAVX2(
     
     colorizeByTypeScalar(indices, srcTypes, dstColors, i, end);
 }
+#else
+void colorizeByTypeAVX2(
+    const uint32_t* RESTRICT indices,
+    const uint16_t* RESTRICT srcTypes,
+    float* RESTRICT dstColors,
+    size_t start, size_t end
+) {
+    colorizeByTypeScalar(indices, srcTypes, dstColors, start, end);
+}
+#endif
 
 // gatherPositions delegates to the shared core: pure memory shuffle (no float
 // arithmetic), so the build's -ffast-math has no bearing on the result.
