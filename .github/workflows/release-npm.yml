@@ -1,17 +1,82 @@
-name: Publish to npm
+name: Prebuild and publish
+
 on:
+  pull_request:
+  workflow_dispatch:
   release:
     types: [published]
+
+permissions:
+  contents: read
+
 jobs:
-  publish:
-    runs-on: ubuntu-latest
-    permissions: { contents: read, id-token: write }
+  prebuild:
+    name: Prebuild (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-22.04
+            arch: x64
+          - name: linux-arm64
+            os: ubuntu-22.04-arm
+            arch: arm64
+          - name: darwin-arm64
+            os: macos-14
+            arch: arm64
+          - name: darwin-x64
+            os: macos-14
+            arch: x64
+          - name: win32-x64
+            os: windows-2022
+            arch: x64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 22, registry-url: https://registry.npmjs.org }
-      - run: npm install --ignore-scripts
-      - run: npm run build --if-present
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci --ignore-scripts
+      - run: npx prebuildify --napi --strip --arch ${{ matrix.arch }}
+      - name: Load the prebuilt addon
+        if: matrix.name != 'darwin-x64'
+        run: node -e "const addon = require('.'); console.log(Object.keys(addon));"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prebuilds-${{ matrix.name }}
+          path: prebuilds/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to npm
+    if: github.event_name == 'release'
+    needs: prebuild
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: prebuilds-*
+          path: prebuilds
+          merge-multiple: true
+      - run: ls -R prebuilds
+      - name: Release tag must match package.json
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: node -e "const v = 'v' + require('./package.json').version; if (v !== process.env.TAG) { console.error(`tag ${process.env.TAG} != ${v}`); process.exit(1); }"
+      - run: npm ci --ignore-scripts
+      - run: node -e "require('.')"
       - run: npm publish --provenance --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

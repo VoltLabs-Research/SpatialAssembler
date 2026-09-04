@@ -9,18 +9,21 @@
   "files": [
     "binding.gyp",
     "index.js",
-    "src/**/*"
-  ],
-  "os": [
-    "linux"
-  ],
-  "cpu": [
-    "x64"
+    "src/glb_core.h",
+    "src/glb_exporter.cpp",
+    "prebuilds/**/*",
+    "LICENSE"
   ],
   "scripts": {
-    "install": "node-gyp rebuild"
+    "install": "node-gyp-build",
+    "prebuild": "prebuildify --napi --strip"
   },
   "devDependencies": {
-    "node-gyp": "^10.0.0"
-  }
+    "node-gyp": "^10.0.0",
+    "prebuildify": "^6.0.1"
+  },
+  "dependencies": {
+    "node-gyp-build": "^4.8.4"
+  },
+  "license": "MIT"
 }

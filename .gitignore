@@ -1,3 +1,6 @@
 build/
 node_modules/
 CLAUDE.md
+
+# prebuildify output (shipped in the npm tarball, never committed)
+prebuilds/

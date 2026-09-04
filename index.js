@@ -1,1 +1,1 @@
-module.exports = require('./build/Release/spatial_assembler.node');
+module.exports = require('node-gyp-build')(__dirname);
