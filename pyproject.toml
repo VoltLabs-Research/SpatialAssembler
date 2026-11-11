@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "volt-spatial-assembler"
-version = "1.0.1"
+version = "2.0.0"
 description = "Encoder and decoder of the quantized, meshopt-compressed glTF models VOLT stores (shared C++ core with the Node addon)."
 requires-python = ">=3.10"
 license = "MIT"
