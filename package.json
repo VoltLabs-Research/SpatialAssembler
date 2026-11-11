@@ -1,7 +1,7 @@
 {
   "name": "@voltstack/spatial-assembler",
   "version": "1.1.1",
-  "description": "Native Node.js addon for spatial GLB assembly workflows.",
+  "description": "Encoder and decoder of the quantized, meshopt-compressed glTF models VOLT stores.",
   "private": false,
   "gypfile": true,
   "main": "index.js",
@@ -9,8 +9,11 @@
   "files": [
     "binding.gyp",
     "index.js",
-    "src/glb_core.h",
-    "src/glb_exporter.cpp",
+    "index.d.ts",
+    "src/*.h",
+    "src/glb_core.cpp",
+    "src/node_binding.cpp",
+    "third_party/**/*",
     "prebuilds/**/*",
     "LICENSE"
   ],
@@ -29,5 +32,6 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/VoltLabs-Research/SpatialAssembler.git"
-  }
+  },
+  "types": "index.d.ts"
 }
