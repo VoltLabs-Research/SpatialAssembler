@@ -1,2 +1,8 @@
-include src/glb_core.h
-include src/glb_python.cpp
+include src/*.h
+include src/glb_core.cpp
+include src/python_binding.cpp
+include third_party/meshoptimizer/*.h
+include third_party/meshoptimizer/*.cpp
+include third_party/meshoptimizer/LICENSE.md
+include third_party/cgltf/cgltf.h
+include third_party/cgltf/LICENSE
