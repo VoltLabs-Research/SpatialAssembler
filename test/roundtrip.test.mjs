@@ -77,6 +77,88 @@ test('meshes keep their geometry, normals and material', () => {
     assert.ok(Math.abs(mesh.material.roughness - 0.6) < 1e-6);
 });
 
+// A plain float32 glTF binary, as VOLT wrote models before this format and other tools still do.
+const float32Glb = ({ attributes, indices, mode, node, material }) => {
+    const views = [];
+    const accessors = [];
+    const chunks = [];
+    let offset = 0;
+    const addView = (array, componentType, type, target) => {
+        views.push({ buffer: 0, byteOffset: offset, byteLength: array.byteLength, target });
+        accessors.push({ bufferView: views.length - 1, componentType, count: array.length / { SCALAR: 1, VEC3: 3 }[type], type });
+        chunks.push(Buffer.from(array.buffer, array.byteOffset, array.byteLength));
+        offset += array.byteLength;
+        return accessors.length - 1;
+    };
+    const primitive = { mode, attributes: {} };
+    for (const [name, array] of Object.entries(attributes)) {
+        primitive.attributes[name] = addView(array, 5126, 'VEC3', 34962);
+    }
+    if (indices) primitive.indices = addView(indices, 5125, 'SCALAR', 34963);
+    if (material) primitive.material = 0;
+    accessors[primitive.attributes.POSITION].min = [0, 0, 0];
+    accessors[primitive.attributes.POSITION].max = [1, 1, 1];
+
+    const json = Buffer.from(JSON.stringify({
+        asset: { version: '2.0' },
+        scene: 0,
+        scenes: [{ nodes: [0] }],
+        nodes: [{ mesh: 0, ...node }],
+        meshes: [{ primitives: [primitive] }],
+        ...(material ? { materials: [material] } : {}),
+        buffers: [{ byteLength: offset }],
+        bufferViews: views,
+        accessors
+    }));
+    const jsonChunk = Buffer.concat([json, Buffer.alloc((4 - (json.length % 4)) % 4, 0x20)]);
+    const bin = Buffer.concat(chunks);
+    const header = Buffer.alloc(12);
+    header.writeUInt32LE(0x46546c67, 0);
+    header.writeUInt32LE(2, 4);
+    header.writeUInt32LE(12 + 8 + jsonChunk.length + 8 + bin.length, 8);
+    const chunkHeader = (length, type) => {
+        const out = Buffer.alloc(8);
+        out.writeUInt32LE(length, 0);
+        out.writeUInt32LE(type, 4);
+        return out;
+    };
+    return Buffer.concat([header, chunkHeader(jsonChunk.length, 0x4e4f534a), jsonChunk, chunkHeader(bin.length, 0x004e4942), bin]);
+};
+
+test('float32 point clouds decode in world coordinates with RGBA8 colours', () => {
+    const positions = new Float32Array([0, 0, 0, 1.25, -2.5, 3.75]);
+    const glb = float32Glb({
+        mode: 0,
+        attributes: { POSITION: positions, COLOR_0: new Float32Array([1, 0, 0, 0, 0.5, 1]) },
+        node: { translation: [10, 20, 30] }
+    });
+    const [points] = sa.decodeGLB(glb);
+    assert.equal(points.mode, 'points');
+    assert.deepEqual([...points.positions], [10, 20, 30, 11.25, 17.5, 33.75]);
+    assert.deepEqual([...points.colors], [255, 0, 0, 255, 0, 128, 255, 255]);
+});
+
+test('float32 meshes decode with their indices, normals and material', () => {
+    const glb = float32Glb({
+        mode: 4,
+        attributes: {
+            POSITION: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0]),
+            NORMAL: new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1])
+        },
+        indices: new Uint32Array([0, 1, 2, 2, 1, 3]),
+        material: { pbrMetallicRoughness: { baseColorFactor: [0.2, 0.4, 0.6, 1], metallicFactor: 0.3, roughnessFactor: 0.7 } }
+    });
+    const [mesh] = sa.decodeGLB(glb);
+    assert.equal(mesh.mode, 'triangles');
+    assert.deepEqual([...mesh.indices], [0, 1, 2, 2, 1, 3]);
+    assert.deepEqual([...mesh.normals.subarray(0, 3)], [0, 0, 1]);
+    assert.ok(Math.abs(mesh.material.baseColor[1] - 0.4) < 1e-6 && Math.abs(mesh.material.roughness - 0.7) < 1e-6);
+
+    const [reencoded] = sa.decodeGLB(sa.encodeMesh(mesh.positions, mesh.normals, mesh.indices, mesh.colors, mesh.material));
+    assert.deepEqual([...reencoded.indices], [0, 1, 2, 2, 1, 3]);
+    assert.ok(Math.abs(reencoded.positions[9] - 1) <= sa.POSITION_STEP / 2);
+});
+
 test('empty inputs give a valid model with nothing in it', () => {
     assert.deepEqual(sa.decodeGLB(sa.encodePointCloud(new Float32Array(0))), []);
     assert.deepEqual(sa.decodeGLB(sa.encodeMesh(new Float32Array(0), new Float32Array(0), new Uint32Array(0))), []);
