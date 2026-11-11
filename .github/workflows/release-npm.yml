@@ -42,9 +42,9 @@ jobs:
           python-version: '3.12'
       - run: npm ci --ignore-scripts
       - run: npx prebuildify --napi --strip --arch ${{ matrix.arch }}
-      - name: Load the prebuilt addon
+      - name: Round-trip the prebuilt addon
         if: matrix.name != 'darwin-x64'
-        run: node -e "const addon = require('.'); console.log(Object.keys(addon));"
+        run: npm test
       - uses: actions/upload-artifact@v4
         with:
           name: prebuilds-${{ matrix.name }}

@@ -19,7 +19,8 @@
   ],
   "scripts": {
     "install": "node-gyp-build",
-    "prebuild": "prebuildify --napi --strip"
+    "prebuild": "prebuildify --napi --strip",
+    "test": "node --test test/roundtrip.test.mjs"
   },
   "devDependencies": {
     "node-gyp": "^10.0.0",

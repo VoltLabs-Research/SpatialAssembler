@@ -24,7 +24,7 @@ jobs:
           CIBW_SKIP: '*-musllinux_*'
           CIBW_ARCHS_MACOS: 'x86_64 arm64'
           CIBW_ARCHS_WINDOWS: 'AMD64'
-          CIBW_TEST_COMMAND: 'python -c "import volt_spatial_assembler"'
+          CIBW_TEST_COMMAND: 'python {project}/test/roundtrip_test.py'
       - uses: actions/upload-artifact@v4
         with:
           name: dist-${{ matrix.os }}
