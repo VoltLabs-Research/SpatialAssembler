@@ -4,3 +4,8 @@ CLAUDE.md
 
 # prebuildify output (shipped in the npm tarball, never committed)
 prebuilds/
+
+# Python build output
+__pycache__/
+*.so
+*.egg-info/
